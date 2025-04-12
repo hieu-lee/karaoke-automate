@@ -10,3 +10,8 @@ pip install blobfile
 pip install noisereduce soundfile
 apt-get update && apt-get install -y fonts-dejavu-core
 ```
+
+# How to run
+```
+python main.py /path/to/your/audiofile.mp3
+```
