@@ -1,8 +1,6 @@
 import os
 import warnings
 import whisper
-from moviepy.editor import *
-# from moviepy.config import change_settings # Not used currently, can remove if not needed
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import time
@@ -15,6 +13,11 @@ import json # For saving/loading transcription
 import gc   # For garbage collection
 import argparse # For command-line arguments
 import sys # To check arguments
+import re
+import yt_dlp
+import platform
+from moviepy.video.VideoClip import VideoClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
 
 # Suppress TensorFlow INFO/DEBUG messages (1=INFO, 2=WARNING, 3=ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -27,7 +30,48 @@ warnings.filterwarnings('ignore', message=".*noisereduce.*", category=UserWarnin
 
 
 # --- Configuration ---
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" # Ensure this font exists or change path
+def get_font_path():
+    """Dynamically find DejaVu Sans font path based on the operating system."""
+    system = platform.system()
+    
+    # Define potential font paths for different operating systems
+    font_paths = []
+    
+    if system == "Windows":
+        font_paths = [
+            "C:/Windows/Fonts/DejaVuSans.ttf",
+            "C:/Windows/Fonts/dejavu-sans.ttf",
+            os.path.expanduser("~/AppData/Local/Microsoft/Windows/Fonts/DejaVuSans.ttf")
+        ]
+    elif system == "Darwin":  # macOS
+        font_paths = [
+            "/System/Library/Fonts/DejaVuSans.ttf",
+            "/Library/Fonts/DejaVuSans.ttf",
+            os.path.expanduser("~/Library/Fonts/DejaVuSans.ttf"),
+            "/System/Library/Fonts/Helvetica.ttc",  # Fallback to system font
+            "/System/Library/Fonts/Arial.ttf"       # Another fallback
+        ]
+    else:  # Linux and other Unix-like systems
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            os.path.expanduser("~/.fonts/DejaVuSans.ttf"),
+            os.path.expanduser("~/.local/share/fonts/DejaVuSans.ttf"),
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Fallback
+            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf"  # Another fallback
+        ]
+    
+    # Check each path and return the first one that exists
+    for path in font_paths:
+        if os.path.exists(path):
+            print(f"Found font at: {path}")
+            return path
+    
+    # If no font found, return None (will use PIL default)
+    print("Warning: No DejaVu Sans font found. Will attempt to use PIL default font.")
+    return None
+
 FONT_SIZE = 18
 VIDEO_SIZE = (1280, 720)
 BACKGROUND_COLOR_PIL = (0, 0, 0)
@@ -55,11 +99,15 @@ VIDEO_THREADS_RATIO = 0.5 # Ratio of CPU cores to use for video encoding (e.g., 
 # --- End Configuration ---
 
 # --- Font Loading ---
+font_path = get_font_path()
 try:
-    font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
-    print(f"Font loaded: {FONT_PATH}")
-except IOError:
-    print(f"Warning: Font not found at {FONT_PATH}. Trying default PIL font.")
+    if font_path:
+        font = ImageFont.truetype(font_path, FONT_SIZE)
+        print(f"Font loaded successfully.")
+    else:
+        raise IOError("No font path found")
+except (IOError, OSError):
+    print("Warning: Could not load TrueType font. Trying default PIL font.")
     try:
         font = ImageFont.load_default()
         print("Using default PIL font.")
@@ -74,7 +122,10 @@ def separate_vocals(input_file, output_dir, model_name=DEMUCS_MODEL):
     start_time = time.time()
     # Use the output_dir directly for demucs output base
     demucs_output_base_dir = output_dir
-    final_stem_dir = os.path.join(demucs_output_base_dir, model_name)
+    # The track name will be the input file basename without extension
+    track_name = os.path.splitext(os.path.basename(input_file))[0]
+    # Demucs will create: output_dir/model_name/track_name/stem.wav
+    final_stem_dir = os.path.join(demucs_output_base_dir, model_name, track_name)
 
     print(f"Target output directory for stems: {final_stem_dir}")
     # Demucs creates the model_name subdir automatically, ensure base output_dir exists
@@ -83,12 +134,11 @@ def separate_vocals(input_file, output_dir, model_name=DEMUCS_MODEL):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    # Command structure changed slightly in newer demucs: output dir via -o, name structure via --filename
+    # Command structure: use default filename format which is {track}/{stem}.{ext}
     command = [
         "python", "-m", "demucs", "--two-stems", "vocals", "-n", model_name,
         "-o", demucs_output_base_dir, # Specify base output directory
         "-d", device,
-        "--filename", "{model}/{stem}.{ext}", # Demucs will create the 'model_name' subdir
         input_file
     ]
     print(f"Executing command: {' '.join(command)}")
@@ -607,9 +657,9 @@ def create_karaoke_video_from_json(audio_track_path, transcription_json_path, ou
         print(f"Using {num_threads} threads and '{VIDEO_OUTPUT_PRESET}' preset for video writing.")
 
         # Create the video clip using the frame generation function
-        video_clip = VideoClip(make_frame=make_karaoke_frame_sentence, duration=duration)
-        # Set audio and FPS
-        video_clip = video_clip.set_audio(audio).set_fps(FPS)
+        # In MoviePy 2.x, use VideoClip with frame_function parameter
+        video_clip = VideoClip(frame_function=make_karaoke_frame_sentence, duration=duration)
+        video_clip = video_clip.with_fps(FPS).with_audio(audio)
 
         print(f"Writing video file to {output_path}...")
         video_clip.write_videofile(output_path,
@@ -645,9 +695,49 @@ def create_karaoke_video_from_json(audio_track_path, transcription_json_path, ou
         print("Video cleanup complete.")
 
 # --- Main Execution Logic ---
+# --- YouTube Download Support ---
+def is_youtube_url(url):
+    youtube_regex = r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/'
+    return re.match(youtube_regex, url) is not None
+
+def download_audio_from_youtube(url, download_dir):
+    """Downloads audio from a YouTube URL and converts it to mp3."""
+    print(f"\n--- Downloading audio from YouTube video: {url} ---")
+    os.makedirs(download_dir, exist_ok=True)
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(download_dir, '%(id)s.%(ext)s'),
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+        'no_warnings': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        video_id = info.get('id')
+    audio_file = os.path.join(download_dir, f"{video_id}.mp3")
+    if not os.path.exists(audio_file):
+        raise RuntimeError(f"Audio download failed, file not found: {audio_file}")
+    print(f"Downloaded audio to: {audio_file}")
+    return audio_file, video_id
+
 def main(args):
     """Main function to orchestrate the karaoke video creation process."""
-    input_file = args.input_file
+    input_arg = args.input_file
+    base_name_override = None
+    if is_youtube_url(input_arg):
+        try:
+            download_dir = os.getcwd()
+            downloaded_audio_path, base_name_override = download_audio_from_youtube(input_arg, download_dir)
+            input_file = downloaded_audio_path
+        except Exception as e:
+            print(f"Error downloading audio from YouTube: {e}. Cannot continue.")
+            return
+    else:
+        input_file = input_arg
     # Define output directory relative to the script or a fixed path
     # Let's create it in the same directory as the input file for simplicity
     output_dir_base = os.path.dirname(input_file)
@@ -663,11 +753,12 @@ def main(args):
         sys.exit(1) # Exit if input doesn't exist
 
     os.makedirs(output_dir, exist_ok=True)
-    base_name = os.path.splitext(os.path.basename(input_file))[0]
+    base_name = base_name_override or os.path.splitext(os.path.basename(input_file))[0]
 
     vocal_path = ""
     instrumental_path = ""
-    final_stem_dir = os.path.join(output_dir, DEMUCS_MODEL) # Demucs output subdir
+    # Demucs creates: output_dir/model_name/track_name/stem.wav
+    final_stem_dir = os.path.join(output_dir, DEMUCS_MODEL, base_name)
     expected_vocal_path = os.path.join(final_stem_dir, 'vocals.wav')
     expected_instrumental_path = os.path.join(final_stem_dir, 'no_vocals.wav')
 

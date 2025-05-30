@@ -1,0 +1,110 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: karaoke-automate-desktop/package-lock.json
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+      working-directory: .
+      
+    - name: Install Node.js dependencies
+      run: npm ci
+      working-directory: karaoke-automate-desktop
+      
+    - name: Build Electron app (macOS)
+      if: matrix.os == 'macos-latest'
+      run: npm run build
+      working-directory: karaoke-automate-desktop
+      env:
+        CSC_IDENTITY_AUTO_DISCOVERY: false
+        
+    - name: Build Electron app (Windows)
+      if: matrix.os == 'windows-latest'
+      run: npm run build -- --win
+      working-directory: karaoke-automate-desktop
+      
+    - name: Build Electron app (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: npm run build -- --linux
+      working-directory: karaoke-automate-desktop
+      
+    - name: Upload artifacts (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: karaoke-automate-macos
+        path: |
+          karaoke-automate-desktop/dist/*.dmg
+          karaoke-automate-desktop/dist/*.dmg.blockmap
+          
+    - name: Upload artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: karaoke-automate-windows
+        path: |
+          karaoke-automate-desktop/dist/*.exe
+          karaoke-automate-desktop/dist/*.exe.blockmap
+          
+    - name: Upload artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: karaoke-automate-linux
+        path: |
+          karaoke-automate-desktop/dist/*.AppImage
+          karaoke-automate-desktop/dist/*.AppImage.blockmap
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          karaoke-automate-macos/*
+          karaoke-automate-windows/*
+          karaoke-automate-linux/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

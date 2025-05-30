@@ -1,0 +1,243 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: karaoke-automate-desktop/package-lock.json
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          venv
+        key: ${{ runner.os }}-python-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-python-
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv venv
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          venv/Scripts/activate
+        else
+          source venv/bin/activate
+        fi
+        pip install --upgrade pip
+        pip install -r requirements.txt
+      shell: bash
+
+    - name: Install Node.js dependencies
+      working-directory: karaoke-automate-desktop
+      run: npm ci
+
+    - name: Build application
+      working-directory: karaoke-automate-desktop
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          # Install additional dependencies for Linux
+          sudo apt-get update
+          sudo apt-get install -y libnss3-dev libatk-bridge2.0-dev libdrm2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libxss1 libasound2-dev
+        fi
+        npm run build-${{ matrix.platform }}
+      shell: bash
+
+    - name: Create checksums (Linux/macOS)
+      if: runner.os != 'Windows'
+      working-directory: karaoke-automate-desktop
+      run: |
+        cd dist
+        for file in *.{dmg,deb,rpm,AppImage,zip} 2>/dev/null; do
+          [ -f "$file" ] && shasum -a 256 "$file" >> checksums.txt
+        done
+      shell: bash
+
+    - name: Create checksums (Windows)
+      if: runner.os == 'Windows'
+      working-directory: karaoke-automate-desktop
+      run: |
+        cd dist
+        Get-ChildItem -Filter "*.exe" | ForEach-Object { 
+          $hash = Get-FileHash -Algorithm SHA256 $_.Name
+          "$($hash.Hash.ToLower())  $($_.Name)" | Out-File -Append -Encoding utf8 checksums.txt
+        }
+      shell: powershell
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: karaoke-automate-${{ matrix.platform }}
+        path: |
+          karaoke-automate-desktop/dist/*.dmg
+          karaoke-automate-desktop/dist/*.exe
+          karaoke-automate-desktop/dist/*.deb
+          karaoke-automate-desktop/dist/*.rpm
+          karaoke-automate-desktop/dist/*.AppImage
+          karaoke-automate-desktop/dist/*.zip
+          karaoke-automate-desktop/dist/checksums.txt
+        retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        find artifacts -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.zip" \) -exec cp {} release-assets/ \;
+        
+        # Combine checksums from all platforms
+        echo "# Karaoke Automate - File Checksums" > release-assets/checksums.txt
+        echo "" >> release-assets/checksums.txt
+        find artifacts -name "checksums.txt" -exec cat {} \; >> release-assets/checksums.txt
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        cat > release_notes.md << EOF
+        # Karaoke Automate $VERSION
+
+        ## 🎵 Features
+        - Create karaoke videos from audio files and YouTube URLs
+        - Advanced vocal separation using Demucs
+        - Automatic transcription with OpenAI Whisper
+        - Cross-platform desktop application (Windows, macOS, Linux)
+        - Modern, accessible user interface
+
+        ## 📦 Downloads
+        Choose the appropriate package for your operating system:
+
+        ### Windows
+        - **Karaoke Automate Setup.exe** - Windows installer (recommended)
+        - **Karaoke Automate Portable.exe** - Portable version
+
+        ### macOS
+        - **Karaoke Automate.dmg** - macOS installer (Intel & Apple Silicon)
+        - **Karaoke Automate-mac.zip** - macOS app bundle
+
+        ### Linux
+        - **Karaoke Automate.AppImage** - Universal Linux package
+        - **karaoke-automate.deb** - Debian/Ubuntu package
+        - **karaoke-automate.rpm** - Red Hat/Fedora package
+
+        ## 🔐 Verification
+        Verify your download using the checksums in \`checksums.txt\`:
+        \`\`\`bash
+        shasum -a 256 -c checksums.txt
+        \`\`\`
+
+        ## 📋 System Requirements
+        - **Windows**: Windows 10 or later (64-bit)
+        - **macOS**: macOS 10.15 or later (Intel or Apple Silicon)
+        - **Linux**: Ubuntu 18.04+ or equivalent (64-bit)
+        - **RAM**: 4GB minimum, 8GB recommended
+        - **Storage**: 2GB free space for installation + space for processing files
+
+        ## 🚀 Installation
+        1. Download the appropriate package for your system
+        2. Install using your system's package manager or run the installer
+        3. Launch Karaoke Automate from your applications menu
+
+        ## 🐛 Known Issues
+        - First launch may take longer as dependencies are initialized
+        - Large video files may require significant processing time
+        - Internet connection required for YouTube URL processing
+
+        ## 📞 Support
+        - Report issues: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
+        - Documentation: [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
+        EOF
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-assets/*
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  auto-update:
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Update auto-updater metadata
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        cat > auto-update.json << EOF
+        {
+          "version": "$VERSION",
+          "releaseDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "platforms": {
+            "win32": {
+              "url": "https://github.com/${{ github.repository }}/releases/download/$VERSION/Karaoke-Automate-Setup.exe"
+            },
+            "darwin": {
+              "url": "https://github.com/${{ github.repository }}/releases/download/$VERSION/Karaoke-Automate.dmg"
+            },
+            "linux": {
+              "url": "https://github.com/${{ github.repository }}/releases/download/$VERSION/Karaoke-Automate.AppImage"
+            }
+          }
+        }
+        EOF
+
+    - name: Deploy auto-update metadata
+      # This would typically deploy to a CDN or update server
+      # For now, we'll just create the file as an artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: auto-update-metadata
+        path: auto-update.json 

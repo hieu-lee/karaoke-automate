@@ -1,0 +1,158 @@
+{
+  "name": "karaoke-automate-desktop",
+  "version": "1.0.0",
+  "description": "Cross-platform desktop application for creating karaoke videos from audio files and YouTube URLs",
+  "main": "electron/main.js",
+  "homepage": ".",
+  "scripts": {
+    "electron": "electron .",
+    "electron-dev": "ELECTRON_IS_DEV=1 electron .",
+    "start": "npm run electron-dev",
+    "build": "electron-builder",
+    "build-mac": "electron-builder --mac",
+    "build-win": "electron-builder --win",
+    "build-linux": "electron-builder --linux",
+    "build-all": "electron-builder --mac --win --linux",
+    "dist": "npm run build",
+    "dist-mac": "npm run build-mac",
+    "dist-win": "npm run build-win",
+    "dist-linux": "npm run build-linux",
+    "dist-all": "npm run build-all",
+    "clean": "rm -rf dist build",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build-script": "node scripts/build.js",
+    "deploy": "node scripts/deploy.js",
+    "deploy-dry-run": "node scripts/deploy.js --dry-run",
+    "postinstall": "electron-builder install-app-deps",
+    "fix-python-symlinks": "node scripts/fix-python-symlinks.js"
+  },
+  "keywords": [
+    "karaoke",
+    "audio",
+    "video",
+    "electron",
+    "cross-platform",
+    "youtube",
+    "whisper",
+    "demucs"
+  ],
+  "author": {
+    "name": "Karaoke Automate Team",
+    "email": "team@karaokeautomate.com"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^32.2.7",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.7",
+    "electron-log": "^5.0.1"
+  },
+  "build": {
+    "appId": "com.karaokeautomate.desktop",
+    "productName": "Karaoke Automate",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "afterPack": "scripts/after-pack.js",
+    "files": [
+      "electron/**/*",
+      "frontend/**/*",
+      "backend/**/*",
+      "node_modules/**/*",
+      "!node_modules/.cache/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../venv",
+        "to": "python",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.music",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64", "ia32"]
+        }
+      ],
+      "publisherName": "Karaoke Automate Team"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        },
+        {
+          "target": "rpm",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "AudioVideo"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "dmg": {
+      "title": "Karaoke Automate ${version}",
+      "contents": [
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        }
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "your-github-username",
+      "repo": "karaoke-automate"
+    }
+  }
+}
