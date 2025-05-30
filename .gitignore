@@ -223,4 +223,19 @@ dmypy.json
 .pytype/
 
 # Cython debug symbols
-cython_debug/ 
+cython_debug/
+
+# Release assets (large binary files)
+release-assets/
+karaoke-automate-desktop/dist/
+
+# Audio/Video files (for testing)
+*.mp3
+*.wav
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flac
+*.m4a
+*.aac 

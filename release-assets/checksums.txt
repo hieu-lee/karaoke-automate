@@ -1,0 +1,4 @@
+b64093aa1daf3c02031d46fd34e94046b96eea9d82db3d78800e60bd892e5e7e  Karaoke Automate-1.0.0-arm64.dmg
+663508e1fef4dff1ccba2e9213b468f2ae577375944f6e1fbb59dddcbd735780  Karaoke Automate-1.0.0.dmg
+593ba97ecea3dbf3521ff3694621a3fa8d7d84033e41f33796d274e814be7af0  Karaoke Automate-1.0.0-arm64-mac.zip
+e1926307a805a16bb63ac4da30939a25a68b1f937beb3c10f7a46f82675abb79  Karaoke Automate-1.0.0-mac.zip
