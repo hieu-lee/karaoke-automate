@@ -40,7 +40,7 @@ jobs:
         python-version: '3.10'
 
     - name: Cache Python dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/pip
@@ -102,7 +102,7 @@ jobs:
       shell: powershell
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: karaoke-automate-${{ matrix.platform }}
         path: |
@@ -125,7 +125,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         path: artifacts
 
@@ -241,7 +241,7 @@ jobs:
     - name: Deploy auto-update metadata
       # This would typically deploy to a CDN or update server
       # For now, we'll just create the file as an artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: auto-update-metadata
         path: auto-update.json 
