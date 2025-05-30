@@ -72,8 +72,12 @@ jobs:
           # Install additional dependencies for Linux
           sudo apt-get update
           sudo apt-get install -y libnss3-dev libatk-bridge2.0-dev libdrm2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libxss1 libasound2-dev
+          npm run build-linux
+        elif [ "$RUNNER_OS" == "Windows" ]; then
+          npm run build-win
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          npm run build-mac
         fi
-        npm run build-${{ matrix.platform }}
       shell: bash
 
     - name: Create checksums (Linux/macOS)
